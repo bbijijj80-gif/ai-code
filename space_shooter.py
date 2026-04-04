@@ -25,7 +25,7 @@ PURPLE = (150, 50, 255)
 
 # Настройка экрана
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Space Shooter - Рекорд: 1,000,000,000")
+pygame.display.set_caption("Space Shooter")
 clock = pygame.time.Clock()
 
 # Пути для сохранения (резервный вариант для не-Windows)
@@ -42,13 +42,24 @@ class RegistryManager:
             self.create_registry_keys()
     
     def create_registry_keys(self):
-        """Создает 10 значений в реестре"""
+        """Создает 10 значений в реестре (только если их нет)"""
         try:
+            # Сначала пробуем открыть существующий ключ
+            try:
+                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, self.registry_path)
+                # Если ключ открылся успешно, значит он уже существует - просто закрываем его
+                winreg.CloseKey(key)
+                print(f"✓ Раздел реестра уже существует, пропускаем инициализацию")
+                return
+            except FileNotFoundError:
+                # Ключ не найден, создаем новый
+                pass
+            
             key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, self.registry_path)
             
-            # 10 различных значений
+            # 10 различных значений (устанавливаются только при первом запуске!)
             values = {
-                "MaxScore": 1000000000,  # 1 миллиард (1 лям)
+                "MaxScore": 0,  # Начинаем с 0, игрок сам набивает рекорд
                 "GamesPlayed": 0,
                 "TotalEnemiesDestroyed": 0,
                 "TotalBulletsFired": 0,
@@ -64,7 +75,7 @@ class RegistryManager:
                 winreg.SetValueEx(key, name, 0, winreg.REG_DWORD, value)
             
             winreg.CloseKey(key)
-            print(f"✓ Создано {len(values)} значений в реестре")
+            print(f"✓ Создано {len(values)} значений в реестре (первый запуск)")
             
         except Exception as e:
             print(f"Ошибка работы с реестром: {e}")
@@ -392,7 +403,7 @@ if __name__ == "__main__":
         print("✓ Режим Windows: работа с реестром активна")
         print("📁 Игра создаст раздел: HKEY_CURRENT_USER\\Software\\SpaceShooterGame")
         print("📊 10 значений будут сохранены в реестре")
-        print("💾 Максимальный счет установлен: 1,000,000,000 (1 лям)")
+        print("💾 MaxScore начинается с 0 и обновляется только при новом рекорде!")
         print("⚠️  Rekord НЕ будет перезаписываться при каждом запуске!")
     else:
         print("⚠ Не Windows: данные сохраняются в файл")
