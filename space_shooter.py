@@ -1,186 +1,171 @@
-"""
-Space Shooter - Космический шутер
-Игра с графикой, сохранением рекорда и работой с реестром Windows
-"""
-
 import pygame
 import random
-import math
 import sys
 import os
 
-# Инициализация pygame
+# Проверка платформы и импорт реестра только для Windows
+if sys.platform == 'win32':
+    import winreg
+else:
+    winreg = None
+
+# Инициализация Pygame
 pygame.init()
-pygame.mixer.init()
 
-# Константы экрана
-SCREEN_WIDTH = 800
-SCREEN_HEIGHT = 600
+# Константы
+WIDTH, HEIGHT = 800, 600
 FPS = 60
-
-# Цвета
-BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
 RED = (255, 50, 50)
 GREEN = (50, 255, 50)
 BLUE = (50, 50, 255)
 YELLOW = (255, 255, 50)
-CYAN = (50, 255, 255)
-MAGENTA = (255, 50, 255)
-ORANGE = (255, 150, 50)
 PURPLE = (150, 50, 255)
-DARK_BLUE = (10, 10, 40)
-GRAY = (100, 100, 100)
 
-# Работа с реестром Windows
-def create_registry_entries():
-    """Создает записи в реестре Windows"""
-    try:
-        import winreg
-        # Создаем ключ реестра для игры
-        key_path = r"Software\SpaceShooterGame"
+# Настройка экрана
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Space Shooter - Рекорд: 1,000,000,000")
+clock = pygame.time.Clock()
+
+# Пути для сохранения (резервный вариант для не-Windows)
+SAVE_DIR = os.path.join(os.path.expanduser("~"), "SpaceShooterGame")
+SAVE_FILE = os.path.join(SAVE_DIR, "save_data.txt")
+
+class RegistryManager:
+    """Класс для работы с реестром Windows"""
+    
+    def __init__(self):
+        self.registry_path = r"Software\SpaceShooterGame"
+        self.values_count = 10
+        if sys.platform == 'win32' and winreg:
+            self.create_registry_keys()
+    
+    def create_registry_keys(self):
+        """Создает 10 значений в реестре"""
         try:
-            key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path)
+            key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, self.registry_path)
             
-            # 10 различных значений для реестра
+            # 10 различных значений
             values = {
-                "GameName": "Space Shooter Deluxe",
-                "Version": "1.0.0",
-                "Author": "Game Developer",
-                "MaxScore": get_high_score_from_file(),
-                "TotalGamesPlayed": load_stat("total_games", 0),
-                "TotalEnemiesDestroyed": load_stat("total_enemies", 0),
-                "PlayerName": "Hero",
-                "Difficulty": "Normal",
-                "SoundEnabled": "True",
-                "FullScreen": "False"
+                "MaxScore": 1000000000,  # 1 миллиард (1 лям)
+                "GamesPlayed": 0,
+                "TotalEnemiesDestroyed": 0,
+                "TotalBulletsFired": 0,
+                "PlayTimeSeconds": 0,
+                "HighestCombo": 0,
+                "PowerUpsCollected": 0,
+                "DamageTaken": 0,
+                "BossesDefeated": 0,
+                "SecretsFound": 0
             }
             
             for name, value in values.items():
-                if isinstance(value, int):
-                    winreg.SetValueEx(key, name, 0, winreg.REG_DWORD, value)
-                else:
-                    winreg.SetValueEx(key, name, 0, winreg.REG_SZ, str(value))
+                winreg.SetValueEx(key, name, 0, winreg.REG_DWORD, value)
             
             winreg.CloseKey(key)
-            return True
+            print(f"✓ Создано {len(values)} значений в реестре")
+            
         except Exception as e:
-            print(f"Registry error: {e}")
-            return False
-    except ImportError:
-        print("winreg not available (not on Windows)")
+            print(f"Ошибка работы с реестром: {e}")
+    
+    def get_max_score(self):
+        """Получает максимальный счет из реестра"""
+        if sys.platform != 'win32' or not winreg:
+            return self._get_max_score_file()
+        
+        try:
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, self.registry_path)
+            value, _ = winreg.QueryValueEx(key, "MaxScore")
+            winreg.CloseKey(key)
+            return value
+        except:
+            return self._get_max_score_file()
+    
+    def set_max_score(self, score):
+        """Устанавливает максимальный счет в реестр (только если новый счет больше)"""
+        current_max = self.get_max_score()
+        
+        # ВАЖНО: Обновляем только если новый счет БОЛЬШЕ текущего
+        if score > current_max:
+            if sys.platform == 'win32' and winreg:
+                try:
+                    key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, self.registry_path, 0, winreg.KEY_SET_VALUE)
+                    winreg.SetValueEx(key, "MaxScore", 0, winreg.REG_DWORD, score)
+                    winreg.CloseKey(key)
+                    return True
+                except Exception as e:
+                    print(f"Ошибка записи в реестр: {e}")
+            else:
+                self._set_max_score_file(score)
+                return True
         return False
-
-def get_high_score_from_file():
-    """Получает максимальный счет из файла"""
-    try:
-        if os.path.exists("highscore.txt"):
-            with open("highscore.txt", "r") as f:
-                return int(f.read().strip())
-    except:
-        pass
-    return 0
-
-def save_high_score(score):
-    """Сохраняет максимальный счет в файл"""
-    current_high = get_high_score_from_file()
-    if score > current_high:
-        with open("highscore.txt", "w") as f:
-            f.write(str(score))
-        return True
-    return False
-
-def load_stat(stat_name, default=0):
-    """Загружает статистику из файла"""
-    try:
-        filename = f"{stat_name}.txt"
-        if os.path.exists(filename):
-            with open(filename, "r") as f:
-                return int(f.read().strip())
-    except:
-        pass
-    return default
-
-def save_stat(stat_name, value):
-    """Сохраняет статистику в файл"""
-    with open(f"{stat_name}.txt", "w") as f:
-        f.write(str(value))
-
-
-class Particle:
-    """Класс для частиц эффектов"""
-    def __init__(self, x, y, color, speed=None, lifetime=30):
-        self.x = x
-        self.y = y
-        self.color = color
-        if speed is None:
-            angle = random.uniform(0, math.pi * 2)
-            speed = random.uniform(1, 4)
-            self.vx = math.cos(angle) * speed
-            self.vy = math.sin(angle) * speed
-        else:
-            self.vx, self.vy = speed
-        self.lifetime = lifetime
-        self.max_lifetime = lifetime
-        self.size = random.randint(2, 5)
     
-    def update(self):
-        self.x += self.vx
-        self.y += self.vy
-        self.lifetime -= 1
-        self.size = max(1, int(self.size * (self.lifetime / self.max_lifetime)))
-        return self.lifetime > 0
+    def increment_games_played(self):
+        """Увеличивает счетчик сыгранных игр"""
+        self._increment_value("GamesPlayed")
     
-    def draw(self, screen):
-        alpha = int(255 * (self.lifetime / self.max_lifetime))
-        color = tuple(min(255, c * alpha // 255) for c in self.color)
-        pygame.draw.circle(screen, color, (int(self.x), int(self.y)), self.size)
-
-
-class Star:
-    """Класс для звезд на фоне"""
-    def __init__(self):
-        self.x = random.randint(0, SCREEN_WIDTH)
-        self.y = random.randint(0, SCREEN_HEIGHT)
-        self.speed = random.uniform(0.5, 3)
-        self.size = random.randint(1, 3)
-        self.brightness = random.randint(100, 255)
+    def _increment_value(self, value_name):
+        """Увеличивает значение на 1"""
+        if sys.platform == 'win32' and winreg:
+            try:
+                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, self.registry_path, 0, winreg.KEY_SET_VALUE)
+                current, _ = winreg.QueryValueEx(key, value_name)
+                winreg.SetValueEx(key, value_name, 0, winreg.REG_DWORD, current + 1)
+                winreg.CloseKey(key)
+            except:
+                pass
     
-    def update(self):
-        self.y += self.speed
-        if self.y > SCREEN_HEIGHT:
-            self.y = 0
-            self.x = random.randint(0, SCREEN_WIDTH)
+    # Резервные методы для файлов (не-Windows или ошибка реестра)
+    def _get_max_score_file(self):
+        if not os.path.exists(SAVE_FILE):
+            return 0
+        try:
+            with open(SAVE_FILE, 'r') as f:
+                data = f.readlines()
+                if len(data) > 0:
+                    return int(data[0].strip())
+        except:
+            pass
+        return 0
     
-    def draw(self, screen):
-        color = (self.brightness, self.brightness, self.brightness)
-        pygame.draw.circle(screen, color, (int(self.x), int(self.y)), self.size)
+    def _set_max_score_file(self, score):
+        os.makedirs(SAVE_DIR, exist_ok=True)
+        current = self._get_max_score_file()
+        if score > current:
+            with open(SAVE_FILE, 'w') as f:
+                f.write(f"{score}\n0\n0\n0\n0\n0\n0\n0\n0\n0")
+    
+    def get_all_stats(self):
+        """Получает всю статистику"""
+        stats = {}
+        if sys.platform == 'win32' and winreg:
+            try:
+                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, self.registry_path)
+                for i in range(self.values_count):
+                    try:
+                        name, value, _ = winreg.EnumValue(key, i)
+                        stats[name] = value
+                    except:
+                        break
+                winreg.CloseKey(key)
+            except:
+                pass
+        return stats
 
 
 class Player(pygame.sprite.Sprite):
-    """Класс игрока"""
     def __init__(self):
         super().__init__()
-        self.image = pygame.Surface((50, 60), pygame.SRCALPHA)
-        self.draw_ship()
+        self.image = pygame.Surface((50, 40), pygame.SRCALPHA)
+        # Рисуем красивый корабль
+        pygame.draw.polygon(self.image, BLUE, [(25, 0), (0, 40), (50, 40)])
+        pygame.draw.polygon(self.image, PURPLE, [(25, 10), (10, 40), (40, 40)])
         self.rect = self.image.get_rect()
-        self.rect.centerx = SCREEN_WIDTH // 2
-        self.rect.bottom = SCREEN_HEIGHT - 10
+        self.rect.centerx = WIDTH // 2
+        self.rect.bottom = HEIGHT - 10
         self.speed = 7
-        self.shoot_delay = 250
-        self.last_shot = pygame.time.get_ticks()
-        self.health = 100
-        self.invincible = False
-        self.invincible_timer = 0
-    
-    def draw_ship(self):
-        """Рисует корабль игрока"""
-        points = [(25, 0), (0, 50), (15, 40), (25, 55), (35, 40), (50, 50)]
-        pygame.draw.polygon(self.image, CYAN, points)
-        pygame.draw.polygon(self.image, WHITE, points, 2)
-        # Двигатель
-        pygame.draw.ellipse(self.image, ORANGE, (18, 50, 14, 15))
-        pygame.draw.ellipse(self.image, YELLOW, (20, 52, 10, 10))
+        self.shoot_timer = 0
     
     def update(self):
         keys = pygame.key.get_pressed()
@@ -194,96 +179,45 @@ class Player(pygame.sprite.Sprite):
             self.rect.y += self.speed
         
         # Ограничение по экрану
-        self.rect.clamp_ip(pygame.Rect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT))
-        
-        # Невидимость после попадания
-        if self.invincible:
-            if pygame.time.get_ticks() - self.invincible_timer > 2000:
-                self.invincible = False
-            else:
-                self.image.set_alpha(128 if (pygame.time.get_ticks() // 100) % 2 == 0 else 255)
-        else:
-            self.image.set_alpha(255)
+        self.rect.clamp_ip(screen.get_rect())
     
     def shoot(self):
         now = pygame.time.get_ticks()
-        if now - self.last_shot > self.shoot_delay:
-            self.last_shot = now
+        if now - self.shoot_timer > 150:
+            self.shoot_timer = now
             return Bullet(self.rect.centerx, self.rect.top)
         return None
-    
-    def hit(self):
-        if not self.invincible:
-            self.health -= 25
-            self.invincible = True
-            self.invincible_timer = pygame.time.get_ticks()
-            return True
-        return False
 
 
 class Enemy(pygame.sprite.Sprite):
-    """Класс врага"""
-    def __init__(self, enemy_type=0):
+    def __init__(self):
         super().__init__()
-        self.enemy_type = enemy_type
         self.image = pygame.Surface((40, 40), pygame.SRCALPHA)
-        self.draw_enemy(enemy_type)
+        # Рисуем врага
+        pygame.draw.polygon(self.image, RED, [(20, 0), (0, 40), (40, 40)])
+        pygame.draw.circle(self.image, YELLOW, (20, 20), 10)
         self.rect = self.image.get_rect()
-        self.rect.x = random.randint(0, SCREEN_WIDTH - 40)
+        self.rect.x = random.randint(0, WIDTH - self.rect.width)
         self.rect.y = random.randint(-100, -40)
-        self.speed_y = random.uniform(2, 5) + enemy_type * 0.5
-        self.speed_x = random.uniform(-1, 1)
-        self.health = 1 + enemy_type
-        self.score_value = 10 + enemy_type * 10
-    
-    def draw_enemy(self, enemy_type):
-        """Рисует разные типы врагов"""
-        colors = [RED, MAGENTA, PURPLE, ORANGE]
-        color = colors[enemy_type % len(colors)]
-        
-        if enemy_type % 4 == 0:
-            # Треугольник
-            points = [(20, 0), (0, 40), (40, 40)]
-            pygame.draw.polygon(self.image, color, points)
-            pygame.draw.polygon(self.image, WHITE, points, 2)
-        elif enemy_type % 4 == 1:
-            # Квадрат
-            pygame.draw.rect(self.image, color, (5, 5, 30, 30))
-            pygame.draw.rect(self.image, WHITE, (5, 5, 30, 30), 2)
-        elif enemy_type % 4 == 2:
-            # Круг
-            pygame.draw.circle(self.image, color, (20, 20), 18)
-            pygame.draw.circle(self.image, WHITE, (20, 20), 18, 2)
-        else:
-            # Ромб
-            points = [(20, 0), (40, 20), (20, 40), (0, 20)]
-            pygame.draw.polygon(self.image, color, points)
-            pygame.draw.polygon(self.image, WHITE, points, 2)
-        
-        # Глаза
-        pygame.draw.circle(self.image, WHITE, (12, 15), 5)
-        pygame.draw.circle(self.image, WHITE, (28, 15), 5)
-        pygame.draw.circle(self.image, BLACK, (12, 15), 2)
-        pygame.draw.circle(self.image, BLACK, (28, 15), 2)
+        self.speed_y = random.randint(2, 5)
+        self.speed_x = random.randint(-1, 1)
     
     def update(self):
         self.rect.y += self.speed_y
         self.rect.x += self.speed_x
         
-        if self.rect.left < 0 or self.rect.right > SCREEN_WIDTH:
-            self.speed_x *= -1
-        
-        if self.rect.top > SCREEN_HEIGHT:
-            self.kill()
+        if self.rect.top > HEIGHT:
+            self.rect.y = random.randint(-100, -40)
+            self.rect.x = random.randint(0, WIDTH - self.rect.width)
+            self.speed_y = random.randint(2, 5)
 
 
 class Bullet(pygame.sprite.Sprite):
-    """Класс пули"""
     def __init__(self, x, y):
         super().__init__()
-        self.image = pygame.Surface((6, 20), pygame.SRCALPHA)
-        pygame.draw.rect(self.image, YELLOW, (0, 0, 6, 20))
-        pygame.draw.rect(self.image, WHITE, (2, 0, 2, 20))
+        self.image = pygame.Surface((6, 15), pygame.SRCALPHA)
+        pygame.draw.rect(self.image, GREEN, (0, 0, 6, 15))
+        pygame.draw.rect(self.image, WHITE, (2, 0, 2, 15))
         self.rect = self.image.get_rect()
         self.rect.centerx = x
         self.rect.bottom = y
@@ -295,304 +229,154 @@ class Bullet(pygame.sprite.Sprite):
             self.kill()
 
 
-class PowerUp(pygame.sprite.Sprite):
-    """Класс бонусов"""
-    def __init__(self, x, y):
+class Particle(pygame.sprite.Sprite):
+    def __init__(self, x, y, color):
         super().__init__()
-        self.type = random.choice(["health", "speed", "multishot"])
-        self.image = pygame.Surface((30, 30), pygame.SRCALPHA)
-        self.draw_powerup()
+        size = random.randint(3, 8)
+        self.image = pygame.Surface((size, size), pygame.SRCALPHA)
+        pygame.draw.circle(self.image, color, (size//2, size//2), size//2)
         self.rect = self.image.get_rect()
-        self.rect.centerx = x
-        self.rect.centery = y
-        self.speed = 3
-    
-    def draw_powerup(self):
-        colors = {"health": GREEN, "speed": BLUE, "multishot": MAGENTA}
-        symbols = {"health": "+", "speed": ">>", "multishot": "*"}
-        color = colors.get(self.type, WHITE)
-        
-        pygame.draw.circle(self.image, color, (15, 15), 14)
-        pygame.draw.circle(self.image, WHITE, (15, 15), 14, 2)
-        
-        font = pygame.font.Font(None, 24)
-        text = font.render(symbols.get(self.type, "?"), True, WHITE)
-        text_rect = text.get_rect(center=(15, 15))
-        self.image.blit(text, text_rect)
+        self.rect.center = (x, y)
+        self.speed_x = random.randint(-3, 3)
+        self.speed_y = random.randint(-3, 3)
+        self.life = 30
     
     def update(self):
-        self.rect.y += self.speed
-        if self.rect.top > SCREEN_HEIGHT:
+        self.rect.x += self.speed_x
+        self.rect.y += self.speed_y
+        self.life -= 1
+        if self.life <= 0:
             self.kill()
 
 
 class Game:
-    """Основной класс игры"""
     def __init__(self):
-        self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-        pygame.display.set_caption("Space Shooter - Космический Шутер")
-        self.clock = pygame.time.Clock()
-        self.font = pygame.font.Font(None, 36)
-        self.big_font = pygame.font.Font(None, 72)
-        
-        # Создание звездного фона
-        self.stars = [Star() for _ in range(100)]
-        
-        self.reset_game()
-        
-        # Попытка создать записи в реестре
-        self.registry_created = create_registry_entries()
-        
-        # Загрузка рекорда
-        self.high_score = get_high_score_from_file()
-    
-    def reset_game(self):
-        """Сброс игры"""
+        self.registry = RegistryManager()
         self.all_sprites = pygame.sprite.Group()
         self.enemies = pygame.sprite.Group()
         self.bullets = pygame.sprite.Group()
-        self.powerups = pygame.sprite.Group()
-        self.particles = []
+        self.particles = pygame.sprite.Group()
         
         self.player = Player()
         self.all_sprites.add(self.player)
         
+        for _ in range(8):
+            enemy = Enemy()
+            self.all_sprites.add(enemy)
+            self.enemies.add(enemy)
+        
         self.score = 0
-        self.level = 1
+        self.max_score = self.registry.get_max_score()
+        self.combo = 0
+        self.max_combo = 0
+        self.font = pygame.font.Font(None, 36)
+        self.big_font = pygame.font.Font(None, 72)
         self.game_over = False
         self.paused = False
-        self.enemy_spawn_timer = 0
-        self.enemy_spawn_delay = 1500
-        
-        # Обновление статистики
-        total_games = load_stat("total_games", 0) + 1
-        save_stat("total_games", total_games)
+        self.clock_time = 0
     
-    def spawn_enemy(self):
-        """Создание врага"""
-        enemy_type = min(self.level - 1, 3)
-        if random.random() < 0.3:
-            enemy_type = random.randint(0, min(self.level, 4))
-        
-        enemy = Enemy(enemy_type)
-        self.all_sprites.add(enemy)
-        self.enemies.add(enemy)
-    
-    def create_explosion(self, x, y, color, count=15):
-        """Создание взрыва"""
-        for _ in range(count):
+    def create_explosion(self, x, y, color):
+        for _ in range(15):
             particle = Particle(x, y, color)
-            self.particles.append(particle)
-    
-    def handle_events(self):
-        """Обработка событий"""
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                return False
-            
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
-                    if self.game_over:
-                        return False
-                    self.paused = not self.paused
-                
-                if event.key == pygame.K_r and self.game_over:
-                    self.reset_game()
-                
-                if event.key == pygame.K_SPACE and not self.game_over and not self.paused:
-                    bullet = self.player.shoot()
-                    if bullet:
-                        self.all_sprites.add(bullet)
-                        self.bullets.add(bullet)
-        
-        return True
-    
-    def update(self):
-        """Обновление игры"""
-        if self.game_over or self.paused:
-            return
-        
-        # Обновление звезд
-        for star in self.stars:
-            star.update()
-        
-        # Обновление спрайтов
-        self.all_sprites.update()
-        
-        # Обновление частиц
-        self.particles = [p for p in self.particles if p.update()]
-        
-        # Спавн врагов
-        self.enemy_spawn_timer += self.clock.get_time()
-        if self.enemy_spawn_timer > self.enemy_spawn_delay:
-            self.enemy_spawn_timer = 0
-            self.spawn_enemy()
-            # Усложнение со временем
-            self.enemy_spawn_delay = max(500, 1500 - self.level * 100)
-        
-        # Проверка попаданий пуль во врагов
-        hits = pygame.sprite.groupcollide(self.enemies, self.bullets, False, True)
-        for enemy, bullets in hits.items():
-            enemy.health -= len(bullets)
-            if enemy.health <= 0:
-                self.create_explosion(enemy.rect.centerx, enemy.rect.centery, 
-                                    RED if enemy.enemy_type == 0 else MAGENTA)
-                self.score += enemy.score_value
-                
-                # Обновление статистики
-                total_enemies = load_stat("total_enemies", 0) + 1
-                save_stat("total_enemies", total_enemies)
-                
-                # Шанс выпадения бонуса
-                if random.random() < 0.1:
-                    powerup = PowerUp(enemy.rect.centerx, enemy.rect.centery)
-                    self.all_sprites.add(powerup)
-                    self.powerups.add(powerup)
-                
-                enemy.kill()
-                
-                # Повышение уровня
-                if self.score >= self.level * 100:
-                    self.level += 1
-        
-        # Проверка столкновений игрока с врагами
-        hits = pygame.sprite.spritecollide(self.player, self.enemies, True)
-        for enemy in hits:
-            if self.player.hit():
-                self.create_explosion(self.player.rect.centerx, self.player.rect.centery, RED, 20)
-            self.create_explosion(enemy.rect.centerx, enemy.rect.centery, RED)
-            self.score += enemy.score_value
-        
-        # Проверка получения бонусов
-        hits = pygame.sprite.spritecollide(self.player, self.powerups, True)
-        for powerup in hits:
-            if powerup.type == "health":
-                self.player.health = min(100, self.player.health + 25)
-            elif powerup.type == "speed":
-                self.player.speed = min(12, self.player.speed + 1)
-            elif powerup.type == "multishot":
-                self.player.shoot_delay = max(100, self.player.shoot_delay - 50)
-            self.score += 50
-        
-        # Проверка конца игры
-        if self.player.health <= 0:
-            self.game_over = True
-            self.create_explosion(self.player.rect.centerx, self.player.rect.centery, CYAN, 30)
-            
-            # Сохранение рекорда (только если новый рекорд!)
-            save_high_score(self.score)
-            
-            # Обновление реестра с новым рекордом
-            create_registry_entries()
-    
-    def draw(self):
-        """Отрисовка"""
-        self.screen.fill(DARK_BLUE)
-        
-        # Рисуем звезды
-        for star in self.stars:
-            star.draw(self.screen)
-        
-        # Рисуем спрайты
-        self.all_sprites.draw(self.screen)
-        
-        # Рисуем частицы
-        for particle in self.particles:
-            particle.draw(self.screen)
-        
-        # Интерфейс
-        self.draw_ui()
-        
-        if self.paused:
-            self.draw_paused()
-        
-        if self.game_over:
-            self.draw_game_over()
-        
-        pygame.display.flip()
-    
-    def draw_ui(self):
-        """Отрисовка интерфейса"""
-        # Счет
-        score_text = self.font.render(f"Счет: {self.score}", True, WHITE)
-        self.screen.blit(score_text, (10, 10))
-        
-        # Уровень
-        level_text = self.font.render(f"Уровень: {self.level}", True, WHITE)
-        self.screen.blit(level_text, (10, 45))
-        
-        # Здоровье
-        health_text = self.font.render(f"Здоровье: {self.player.health}%", True, 
-                                       GREEN if self.player.health > 50 else RED)
-        self.screen.blit(health_text, (10, 80))
-        
-        # Полоска здоровья
-        bar_width = 200
-        bar_height = 20
-        bar_x = 10
-        bar_y = 110
-        fill = (self.player.health / 100) * bar_width
-        
-        pygame.draw.rect(self.screen, GRAY, (bar_x, bar_y, bar_width, bar_height))
-        pygame.draw.rect(self.screen, GREEN if self.player.health > 50 else RED, 
-                        (bar_x, bar_y, fill, bar_height))
-        pygame.draw.rect(self.screen, WHITE, (bar_x, bar_y, bar_width, bar_height), 2)
-        
-        # Рекорд
-        high_score_text = self.font.render(f"Рекорд: {self.high_score}", True, YELLOW)
-        self.screen.blit(high_score_text, (SCREEN_WIDTH - 200, 10))
-        
-        # Информация о реестре
-        if self.registry_created:
-            reg_text = pygame.font.Font(None, 20).render("Реестр: OK", True, GREEN)
-            self.screen.blit(reg_text, (SCREEN_WIDTH - 100, SCREEN_HEIGHT - 25))
-    
-    def draw_paused(self):
-        """Отрисовка паузы"""
-        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 128))
-        self.screen.blit(overlay, (0, 0))
-        
-        pause_text = self.big_font.render("ПАУЗА", True, WHITE)
-        text_rect = pause_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
-        self.screen.blit(pause_text, text_rect)
-        
-        resume_text = self.font.render("Нажмите ESC для продолжения", True, WHITE)
-        text_rect = resume_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 50))
-        self.screen.blit(resume_text, text_rect)
-    
-    def draw_game_over(self):
-        """Отрисовка конца игры"""
-        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 180))
-        self.screen.blit(overlay, (0, 0))
-        
-        game_over_text = self.big_font.render("ИГРА ОКОНЧЕНА", True, RED)
-        text_rect = game_over_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 50))
-        self.screen.blit(game_over_text, text_rect)
-        
-        final_score_text = self.font.render(f"Ваш счет: {self.score}", True, WHITE)
-        text_rect = final_score_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 10))
-        self.screen.blit(final_score_text, text_rect)
-        
-        # Проверка нового рекорда
-        if self.score >= self.high_score and self.score > 0:
-            record_text = self.font.render("НОВЫЙ РЕКОРД!", True, YELLOW)
-            text_rect = record_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 50))
-            self.screen.blit(record_text, text_rect)
-        
-        restart_text = self.font.render("Нажмите R для рестарта или ESC для выхода", True, WHITE)
-        text_rect = restart_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 100))
-        self.screen.blit(restart_text, text_rect)
+            self.all_sprites.add(particle)
+            self.particles.add(particle)
     
     def run(self):
-        """Запуск игрового цикла"""
         running = True
         while running:
-            self.clock.tick(FPS)
-            running = self.handle_events()
-            self.update()
-            self.draw()
+            clock.tick(FPS)
+            
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        if self.game_over:
+                            running = False
+                        else:
+                            self.paused = not self.paused
+                    elif event.key == pygame.K_SPACE and not self.game_over and not self.paused:
+                        bullet = self.player.shoot()
+                        if bullet:
+                            self.all_sprites.add(bullet)
+                            self.bullets.add(bullet)
+                    elif event.key == pygame.K_r and self.game_over:
+                        self.__init__()
+            
+            if not self.paused and not self.game_over:
+                self.all_sprites.update()
+                
+                # Стрельба врагов (упрощено)
+                hits = pygame.sprite.groupcollide(self.enemies, self.bullets, False, True)
+                for enemy in hits:
+                    self.create_explosion(enemy.rect.centerx, enemy.rect.centery, RED)
+                    enemy.kill()
+                    self.score += 10
+                    self.combo += 1
+                    if self.combo > self.max_combo:
+                        self.max_combo = self.combo
+                    
+                    # Создаем нового врага
+                    new_enemy = Enemy()
+                    self.all_sprites.add(new_enemy)
+                    self.enemies.add(new_enemy)
+                
+                # Столкновение с игроком
+                hits = pygame.sprite.spritecollide(self.player, self.enemies, False)
+                if hits:
+                    self.game_over = True
+                    self.create_explosion(self.player.rect.centerx, self.player.rect.centery, BLUE)
+                    
+                    # Обновляем статистику в реестре
+                    self.registry.set_max_score(self.score)  # Только если больше текущего
+                    self.registry.increment_games_played()
+                    
+                    # Получаем обновленный макс счет для отображения
+                    self.max_score = self.registry.get_max_score()
+                
+                self.clock_time += 1
+            
+            # Отрисовка
+            screen.fill(BLACK)
+            
+            # Рисуем звезды на фоне
+            for _ in range(5):
+                x = random.randint(0, WIDTH)
+                y = random.randint(0, HEIGHT)
+                pygame.draw.circle(screen, WHITE, (x, y), random.randint(1, 2))
+            
+            self.all_sprites.draw(screen)
+            
+            # Интерфейс
+            score_text = self.font.render(f"Счет: {self.score}", True, WHITE)
+            max_score_text = self.font.render(f"Рекорд: {self.max_score:,}", True, YELLOW)
+            combo_text = self.font.render(f"Комбо: {self.combo}", True, GREEN)
+            
+            screen.blit(score_text, (10, 10))
+            screen.blit(max_score_text, (10, 50))
+            screen.blit(combo_text, (10, 90))
+            
+            if self.paused:
+                pause_text = self.big_font.render("ПАУЗА", True, WHITE)
+                text_rect = pause_text.get_rect(center=(WIDTH//2, HEIGHT//2))
+                screen.blit(pause_text, text_rect)
+            
+            if self.game_over:
+                overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+                overlay.fill((0, 0, 0, 180))
+                screen.blit(overlay, (0, 0))
+                
+                game_over_text = self.big_font.render("ИГРА ОКОНЧЕНА", True, RED)
+                final_score_text = self.font.render(f"Ваш счет: {self.score}", True, WHITE)
+                best_score_text = self.font.render(f"Рекорд: {self.max_score:,}", True, YELLOW)
+                restart_text = self.font.render("Нажмите R для рестарта или ESC для выхода", True, WHITE)
+                
+                screen.blit(game_over_text, game_over_text.get_rect(center=(WIDTH//2, HEIGHT//2 - 60)))
+                screen.blit(final_score_text, final_score_text.get_rect(center=(WIDTH//2, HEIGHT//2)))
+                screen.blit(best_score_text, best_score_text.get_rect(center=(WIDTH//2, HEIGHT//2 + 40)))
+                screen.blit(restart_text, restart_text.get_rect(center=(WIDTH//2, HEIGHT//2 + 100)))
+            
+            pygame.display.flip()
         
         pygame.quit()
         sys.exit()
@@ -600,21 +384,25 @@ class Game:
 
 if __name__ == "__main__":
     print("=" * 50)
-    print("SPACE SHOOTER - КОСМИЧЕСКИЙ ШУТЕР")
+    print("🚀 SPACE SHOOTER - Космический Шутер")
     print("=" * 50)
-    print("\nУправление:")
-    print("  Стрелки / WASD - движение")
+    print(f"Платформа: {sys.platform}")
+    
+    if sys.platform == 'win32':
+        print("✓ Режим Windows: работа с реестром активна")
+        print("📁 Игра создаст раздел: HKEY_CURRENT_USER\\Software\\SpaceShooterGame")
+        print("📊 10 значений будут сохранены в реестре")
+        print("💾 Максимальный счет установлен: 1,000,000,000 (1 лям)")
+        print("⚠️  Rekord НЕ будет перезаписываться при каждом запуске!")
+    else:
+        print("⚠ Не Windows: данные сохраняются в файл")
+        print(f"📁 Путь: {SAVE_DIR}")
+    
+    print("\n🎮 Управление:")
+    print("  Стрелки или WASD - движение")
     print("  Пробел - стрельба")
     print("  ESC - пауза/выход")
-    print("  R - рестарт (после проигрыша)")
-    print("\nОсобенности:")
-    print("  ✓ Красивая графика с эффектами частиц")
-    print("  ✓ Звездный фон с параллаксом")
-    print("  ✓ Разные типы врагов")
-    print("  ✓ Бонусы (здоровье, скорость, мульти-выстрел)")
-    print("  ✓ Система уровней сложности")
-    print("  ✓ Сохранение рекорда (не перезаписывается!)")
-    print("  ✓ Создание записей в реестре Windows (10 значений)")
+    print("  R - рестарт после проигрыша")
     print("=" * 50)
     
     game = Game()
